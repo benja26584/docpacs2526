@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="utf-8">
+	<title>Optional Lab 5-1</title>
+</head>
+
+<body>
+	<h2>CIW JavaScript Specialist</h2>
+	<hr>
+	<form id="cityForm">
+		<label for="cities">Choose a city:</label>
+		<select id="cities" name="cities">
+			<option value="0">Select A City</option>
+			<option value="1">Albany</option>
+			<option value="2">Boston</option>
+			<option value="3">Chicago</option>
+			<option value="4">Denver</option>
+			<option value="5">Elmsville</option>
+			<option value="6">Franklin</option>
+			<option value="7">Anaheim</option>
+			<option value="8">Hartland</option>
+			<option value="9">Iona</option>
+			<option value="10">Jacksonville</option>
+		</select>
+		<br><br>
+		<button type="button" id="selectCityBtn">Select City</button>
+	</form>
+</body>
+
+<script>
+	document.getElementById("selectCityBtn").addEventListener("click", function () {
+		const selectedValue = document.getElementById("cities").value;
+
+		switch (selectedValue) {
+			case "1":
+				alert("Albany");
+				break;
+			case "2":
+				alert("Boston");
+				break;
+			case "3":
+				alert("Chicago");
+				break;
+			case "4":
+				alert("Denver");
+				break;
+			case "5":
+				alert("Elmsville");
+				break;
+			case "6":
+				alert("Franklin");
+				break;
+			case "7":
+				alert("Anaheim");
+				break;
+			case "8":
+				alert("Hartland");
+				break;
+			case "9":
+				alert("Iona");
+				break;
+			case "10":
+				alert("Jacksonville");
+				break;
+			default:
+				alert("Please select an option");
+		}
+	});
+</script>
+
+
+
+
+</html>

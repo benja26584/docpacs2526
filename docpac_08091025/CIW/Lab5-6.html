@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <title>Lab 5-6</title>
+    </head>
+	
+	<body>
+	  <h2>CIW JavaScript Specialist</h2>
+	<p id="output"></p>
+
+	<script>
+		let result = "";
+
+		for (let i = 1; i <= 100; i++) {
+			if (i % 7 !== 0) {
+				continue; 
+			}
+
+			result += i + "<br>";
+		}
+
+		document.getElementById("output").innerHTML = result;
+	</script>
+</body>
+</html>

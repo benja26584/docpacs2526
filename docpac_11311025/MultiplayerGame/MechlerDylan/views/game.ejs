@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spellbar</title>
+    <style>
+        #content {
+            display: flex;
+        }
+
+        #spells {
+            margin-right: 50px;
+        }
+
+        #weaknesses {
+            margin-left: 50px;
+        }
+
+        #health {
+            margin-left: 50px;
+            margin-right: 50px;
+        }
+
+        #turn {
+            margin-left: 50px;
+            margin-right: 50px;
+        }
+
+        #spellsCast {
+            margin-left: 50px;
+            margin-right: 50px;
+        }
+
+        button {
+            width: 100px;
+            height: 100px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="content">
+        <div id="spells">
+            <h1>Spells:</h1>
+            <button onclick="castSpell(0)">Fire</button>
+            <button onclick="castSpell(1)">Water</button>
+            <button onclick="castSpell(2)">Lightning</button>
+            <button onclick="castSpell(3)">Earth</button>
+            <button onclick="castSpell(4)">Air</button>
+        </div>
+        <div id="health">
+            <h1>HP:</h1>
+            <div id="p1HP">Player 1 HP: 100</div>
+            <div id="p2HP">Player 2 HP: 100</div>
+        </div>
+        <div id="turn">
+            <h1>Turn:</h1>
+            <div id="player">Player 1</div>
+        </div>
+        <div id="spellsCast">
+            <h1>Previous Spell:</h1>
+            <div id="previousSpell">None</div>
+        </div>
+        <div id="weaknesses">
+            <h1>Weaknesses:</h1>
+            <div>Fire to Water</div>
+            <div>Water to Lightning</div>
+            <div>Lightning to Earth</div>
+            <div>Earth to Air</div>
+            <div>Air to Fire</div>
+        </div>
+    </div>
+</body>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+    const socket = io();
+    const content = document.getElementById("spells");
+    const p1h = document.getElementById("p1HP");
+    const p2h = document.getElementById("p2HP");
+    const turnDisplay = document.getElementById("player");
+    const spell = document.getElementById("previousSpell")
+    var userNum = null
+    var Player = {}
+    var Playable = true
+    var GameStarted = false
+    var displayedPlayer = false
+
+    function castSpell(spell) {
+        if (GameStarted == true) {
+            if (Player.turn == userNum) {
+                if (Playable == true) {
+                    socket.emit('spell', spell);
+                }
+            } else {
+                alert("Not Your Turn")
+            }
+        } else {
+            alert("The Game Has Not Started")
+        }
+    };
+
+    socket.on('connected', (msg) => {
+        console.log('connected')
+        if (userNum == null) {
+            userNum = msg
+        }
+        if (msg == 1) {
+            p1h.innerText = "Player 1 HP: 100"
+            p2h.innerText = "Connect Player 2"
+        } else if (msg == 2) {
+            GameStarted = true
+            p1h.innerText = "Player 1 HP: 100"
+            p2h.innerText = "Player 2 HP: 100"
+        }
+        console.log(userNum)
+    });
+
+    socket.on("playerJoined", (msg) => {
+        console.log(msg)
+        Player = msg
+        console.log(Player)
+        if ((userNum == 1) && (displayedPlayer == false)) {
+            alert("You are Player 1")
+            displayedPlayer = true
+        } else if ((userNum == 2) && (displayedPlayer == false)) {
+            alert("You are Player 2")
+            displayedPlayer == true
+        } else {
+            alert("Game Full")
+        }
+        if (Player.turn == 1) {
+            turnDisplay.innerText = "Player 1"
+        } else if (Player.turn == 2) {
+            turnDisplay.innerText = "Player 2"
+        }
+    });
+
+    socket.on('playable', () => {
+        console.log('playable')
+    });
+
+    socket.on('gameUpdate', (msg) => {
+        Player = msg
+        console.log(Player)
+        p1h.innerText = "Player 1 HP: " + Player.Player1Health
+        p2h.innerText = "Player 2 HP: " + Player.Player2Health
+        if (Player.turn == 1) {
+            turnDisplay.innerText = "Player 1"
+        } else if (Player.turn == 2) {
+            turnDisplay.innerText = "Player 2"
+        }
+        if (Player.roundState == "over") {
+            if (userNum == 1) {
+                if (Player.Player2Spell == null) {
+                    spell.innerText = "None"
+                } else {
+                    spell.innerText = Player.Player2Spell
+                }
+            } else if (userNum == 2) {
+                if (Player.Player1Spell == null) {
+                    spell.innerText = "None"
+                } else {
+                    spell.innerText = Player.Player1Spell
+                }
+            }
+        };
+        if ((Player.Player1Health <= 0) && (Player.Player2Health <= 0)) {
+            console.log("Player 1 Lost")
+            Playable = false
+            alert("TIE!")
+            socket.emit('reload')
+        } else if (Player.Player1Health <= 0) {
+            console.log("Player 1 Lost")
+            Playable = false
+            if (userNum == 1) {
+                alert("You Lose!")
+                socket.emit('reload')
+            } else if (userNum == 2) {
+                alert("YOU WIN! CONGRATULATIONS!")
+                socket.emit('reload')
+            }
+        } else if (Player.Player2Health <= 0) {
+            console.log("Player 2 Lost")
+            Playable = false
+            if (userNum == 2) {
+                alert("You Lose!")
+                socket.emit('reload')
+            } else if (userNum == 1) {
+                alert("YOU WIN! CONGRATULATIONS!")
+                socket.emit('reload')
+            }
+        }
+    });
+
+    socket.on('opponent left', () => {
+        alert("Opponent Left")
+        socket.emit('reload')
+    })
+
+    socket.on('redirect', (url) => {
+        window.location.href = url
+    })
+</script>
+
+</html>
