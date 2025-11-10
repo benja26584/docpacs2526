@@ -1,6 +1,6 @@
-require('dotenv').config();
-const express = require('express');
 const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
+const express = require('express');
 const fs = require('fs').promises;
 
 const GradingService = require('./services/gradingService');
@@ -15,7 +15,7 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static('public'));
+app.use(express.static(path.resolve(__dirname, '..', 'public')));
 
 // Load configuration
 let config;
@@ -29,6 +29,23 @@ try {
 // Initialize services
 const dataService = new DataService();
 const reportGenerator = new ReportGenerator();
+
+// Reports directory
+const REPORTS_DIR = path.resolve(__dirname, '..', 'reports');
+
+// Ensure reports directory exists
+async function ensureReportsDir() {
+  try {
+    await fs.access(REPORTS_DIR);
+  } catch {
+    await fs.mkdir(REPORTS_DIR, { recursive: true });
+  }
+}
+
+// Initialize reports directory on startup
+ensureReportsDir().catch(err => {
+  console.error('Error creating reports directory:', err);
+});
 
 // Validate environment variables
 if (!process.env.GITHUB_TOKEN) {
@@ -195,15 +212,30 @@ app.post('/grade', async (req, res) => {
     console.log(`Starting grading for team: ${teamName}`);
     const results = await gradingService.gradeTeam(repoUrl, projectBoard, usernames);
 
-    // Save results if this is a saved team
+    // Generate and save HTML report
+    await ensureReportsDir();
+    const timestamp = Date.now();
+    const safeTeamName = teamName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    const reportFilename = `grading-report-${safeTeamName}-${timestamp}.html`;
+    const reportPath = path.join(REPORTS_DIR, reportFilename);
+    const reportRelativePath = `reports/${reportFilename}`;
+    
+    const html = reportGenerator.generateHTMLReport(results, teamName);
+    await fs.writeFile(reportPath, html, 'utf8');
+    console.log(`Report saved to: ${reportPath}`);
+
+    // Save results and report path if this is a saved team
+    let reportPathStored = null;
     if (teamId) {
-      await dataService.saveGradingResults(teamId, results);
+      await dataService.saveGradingResults(teamId, results, reportRelativePath);
+      reportPathStored = reportRelativePath;
     }
 
     res.json(successResponse({
       results,
       teamId,
       teamName,
+      reportPath: reportRelativePath,
     }));
   } catch (error) {
     console.error('Error during grading:', error);
@@ -212,21 +244,43 @@ app.post('/grade', async (req, res) => {
 });
 
 /**
- * POST /export - Export results as HTML
+ * POST /export - Export results as HTML (serves saved file)
  */
 app.post('/export', async (req, res) => {
   try {
-    const { results, teamName } = req.body;
+    const { reportPath, teamId } = req.body;
 
-    if (!results) {
-      return res.status(400).json(errorResponse('Results data is required'));
+    let filePath = null;
+
+    // If teamId is provided, get the report path from team data
+    if (teamId) {
+      const team = await dataService.getTeamById(teamId);
+      if (team && team.lastReportPath) {
+        filePath = path.resolve(__dirname, '..', team.lastReportPath);
+      }
+    } else if (reportPath) {
+      // Use provided report path
+      filePath = path.resolve(__dirname, '..', reportPath);
     }
 
-    const html = reportGenerator.generateHTMLReport(results, teamName || 'Team');
+    if (!filePath) {
+      return res.status(404).json(errorResponse('Report file not found. Please re-grade the team to generate a new report.'));
+    }
+
+    // Check if file exists
+    try {
+      await fs.access(filePath);
+    } catch {
+      return res.status(404).json(errorResponse('Report file not found. Please re-grade the team to generate a new report.'));
+    }
+
+    // Read and serve the file
+    const html = await fs.readFile(filePath, 'utf8');
+    const filename = path.basename(filePath);
 
     // Set headers for file download
     res.setHeader('Content-Type', 'text/html');
-    res.setHeader('Content-Disposition', `attachment; filename="grading-report-${Date.now()}.html"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(html);
   } catch (error) {
     console.error('Error exporting report:', error);
