@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Profile</title>
+</head>
+<body>
+  <h1>Profile</h1>
+  <p id="username">Welcome <%= fb_name %>!</p>
+
+  <form method="POST" action="/profile">
+    <label>
+      <input type="checkbox" name="profile_checked" <%= profile_checked ? 'checked' : '' %> />
+      Profile Checked
+    </label>
+    <br/>
+    <button type="submit">Save</button>
+  </form>
+
+  <p><a href="/">Home</a>
+</body>
+</html>

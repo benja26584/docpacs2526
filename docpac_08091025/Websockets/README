@@ -1,0 +1,1 @@
+Websockets as a base are used for two way communication between client and the server. This can be done at anytime while the connection is still there allowing it to be done many time in the same instance. Socket.io builds off of websockets making it easier to use. This is from its features like automatic reconnection, event-based messaging, and middleware support.

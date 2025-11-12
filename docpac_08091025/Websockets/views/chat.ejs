@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Chat Room</title>
+  <style>
+    body {
+      font-family: Arial;
+      margin: 20px;
+    }
+
+    #onlineList {
+      border-radius: 8px;
+      width: 250px;
+    }
+
+    .me {
+      font-weight: bold;
+      color: green;
+    }
+  </style>
+</head>
+
+<body>
+  <h2>Welcome, <%= fb_name %>!</h2>
+
+  <div id="onlineList">
+    <h3>Online Users</h3>
+    <ul id="users"></ul>
+  </div>
+  <div id="chatLogs">
+
+  </div>
+  <div id="messageInput">
+    <form>
+      <input type="text" id="message" placeholder="Type your message..." />
+      <button id="sendBtn">Send</button>
+    </form>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    const fb_name = "<%= fb_name %>";
+    const fb_id = "<%= fb_id %>";
+
+    // Tell the server that this user came online
+    socket.emit('user_online', { fb_name, fb_id });
+    socket.fb_id = fb_id;
+
+    // Update the user list when server broadcasts
+    socket.on('online_users', (users) => {
+      const list = document.getElementById('users');
+      list.innerHTML = '';
+      users.forEach(u => {
+        const li = document.createElement('li');
+        li.textContent = u.fb_name + (u.fb_name === fb_name ? " (You)" : "");
+        list.appendChild(li);
+      });
+    });
+
+    const form = document.querySelector('#messageInput form');
+    const input = document.getElementById('message');
+    const chatLogs = document.getElementById('chatLogs');
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const msg = input.value.trim();
+      if (msg) {
+        socket.emit('chatMessage', { fb_name, fb_id, message: msg });
+        input.value = '';
+      }
+    });
+
+    socket.on('chatMessage', (data) => {
+      const p = document.createElement('p');
+      p.innerHTML = `<strong>${data.fb_name}:</strong> ${data.message}`;
+      if (data.fb_id === fb_id) {
+        p.classList.add('me');
+      }
+      chatLogs.appendChild(p);
+      chatLogs.scrollTop = chatLogs.scrollHeight; // Auto scroll to bottom
+    });
+
+
+
+    // When leaving the page (close tab / logout)
+    window.addEventListener('beforeunload', () => {
+      socket.emit('user_logout', fb_id);
+    });
+  </script>
+</body>
+
+</html>
