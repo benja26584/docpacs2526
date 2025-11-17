@@ -28,8 +28,8 @@ const db = new sqlite3.Database('./db/database.db', (err) => {
 //Constants
 const PORT = process.env.PORT || 3000;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'your_secret_key';
-const AUTH_URL = process.env.AUTH_URL || 'http://172.16.3.228:420/oauth';
-const THIS_URL = process.env.THIS_URL || `http://172.16.3.228:${PORT}`;
+const AUTH_URL = process.env.AUTH_URL || 'http://172.16.3.253:420/oauth';
+const THIS_URL = process.env.THIS_URL || `http://172.16.3.253:${PORT}`;
 const API_KEY = process.env.API_KEY || 'your_api_key';
 
 // Middleware
@@ -160,22 +160,17 @@ io.on('connection', (socket) => {
         const speed1 = Math.abs(players.avatar.velocityX || 0) + Math.abs(players.avatar.velocityY || 0);
         const speed2 = Math.abs(players.avatar2.velocityX || 0) + Math.abs(players.avatar2.velocityY || 0);
 
-        console.log("Collision detected! Speed1:", speed1, "Speed2:", speed2);
-
         let victim = speed1 > speed2 ? 'avatar2' : 'avatar';
         let aggressor = speed1 > speed2 ? 'avatar' : 'avatar2';
 
-        // Calculate separation direction
-        const dx = (players.avatar.x + 25) - (players.avatar2.x + 25); // 25 = half width
-        const dy = (players.avatar.y + 25) - (players.avatar2.y + 25); // 25 = half height
+        const dx = (players.avatar.x + 25) - (players.avatar2.x + 25);
+        const dy = (players.avatar.y + 25) - (players.avatar2.y + 25);
         const distance = Math.sqrt(dx * dx + dy * dy);
 
-        // Normalize direction
-        const separationDistance = 55; // Slightly more than combined width/height
+        const separationDistance = 55;
         const separateX = (dx / distance) * separationDistance;
         const separateY = (dy / distance) * separationDistance;
 
-        // Separate the victim
         if (victim === 'avatar') {
             players.avatar.x = players.avatar2.x + separateX;
             players.avatar.y = players.avatar2.y + separateY;
@@ -184,9 +179,7 @@ io.on('connection', (socket) => {
             players.avatar2.y = players.avatar.y - separateY;
         }
 
-        console.log("Victim determined:", victim);
 
-        // Send both the collision response AND updated positions
         io.emit('collisionResponse', {
             victim: victim,
             positions: {
@@ -195,6 +188,18 @@ io.on('connection', (socket) => {
             }
         });
     }
+    socket.on('playerDied', (data) => {
+        console.log(`Player ${data.player} has died.`);
+        if (data.player === 'avatar') {
+            players.avatar.x = 314;
+            players.avatar.y = 366;
+        } else if (data.player === 'avatar2') {
+            players.avatar2.x = 720;
+            players.avatar2.y = 366;
+        }
+        console.log('Sending updated positions:', players);
+        io.emit('update', players);
+    });
 
     socket.on('disconnect', () => {
         console.log('A user disconnected:', socket.id);
@@ -206,7 +211,7 @@ io.on('connection', (socket) => {
     });
 });
 
-// Start Server
+
 server.listen(PORT, () => {
     console.log(`Server is running at http://localhost:${PORT}`);
 });

@@ -151,6 +151,95 @@ app.delete('/api/teams/:id', async (req, res) => {
   }
 });
 
+// ==================== CLASS MANAGEMENT ROUTES ====================
+
+/**
+ * GET /api/classes - List all classes
+ */
+app.get('/api/classes', async (req, res) => {
+  try {
+    const classes = await dataService.getAllClasses();
+    res.json(successResponse(classes));
+  } catch (error) {
+    console.error('Error fetching classes:', error);
+    res.status(500).json(errorResponse('Failed to fetch classes', error.message));
+  }
+});
+
+/**
+ * GET /api/classes/:id - Get single class
+ */
+app.get('/api/classes/:id', async (req, res) => {
+  try {
+    const cls = await dataService.getClassById(req.params.id);
+    if (!cls) {
+      return res.status(404).json(errorResponse('Class not found'));
+    }
+    res.json(successResponse(cls));
+  } catch (error) {
+    console.error('Error fetching class:', error);
+    res.status(500).json(errorResponse('Failed to fetch class', error.message));
+  }
+});
+
+/**
+ * POST /api/classes - Create new class
+ */
+app.post('/api/classes', async (req, res) => {
+  try {
+    const classData = {
+      name: req.body.name,
+      usernames: parseUsernames(req.body.usernames),
+    };
+
+    if (!classData.name || !classData.usernames || classData.usernames.length === 0) {
+      return res.status(400).json(errorResponse('Missing required fields: name, usernames'));
+    }
+
+    const cls = await dataService.createClass(classData);
+    res.status(201).json(successResponse(cls));
+  } catch (error) {
+    console.error('Error creating class:', error);
+    res.status(500).json(errorResponse('Failed to create class', error.message));
+  }
+});
+
+/**
+ * PUT /api/classes/:id - Update class
+ */
+app.put('/api/classes/:id', async (req, res) => {
+  try {
+    const updates = {
+      name: req.body.name,
+      usernames: req.body.usernames ? parseUsernames(req.body.usernames) : undefined,
+    };
+
+    // Remove undefined values
+    Object.keys(updates).forEach(key => updates[key] === undefined && delete updates[key]);
+
+    const cls = await dataService.updateClass(req.params.id, updates);
+    res.json(successResponse(cls));
+  } catch (error) {
+    console.error('Error updating class:', error);
+    const status = error.message.includes('not found') ? 404 : 500;
+    res.status(status).json(errorResponse('Failed to update class', error.message));
+  }
+});
+
+/**
+ * DELETE /api/classes/:id - Delete class
+ */
+app.delete('/api/classes/:id', async (req, res) => {
+  try {
+    await dataService.deleteClass(req.params.id);
+    res.json(successResponse({ message: 'Class deleted successfully' }));
+  } catch (error) {
+    console.error('Error deleting class:', error);
+    const status = error.message.includes('not found') ? 404 : 500;
+    res.status(status).json(errorResponse('Failed to delete class', error.message));
+  }
+});
+
 // ==================== GRADING ROUTES ====================
 
 /**
@@ -285,6 +374,171 @@ app.post('/export', async (req, res) => {
   } catch (error) {
     console.error('Error exporting report:', error);
     res.status(500).json(errorResponse('Failed to export report', error.message));
+  }
+});
+
+/**
+ * POST /grade/user - Grade a single user across all repos
+ */
+app.post('/grade/user', async (req, res) => {
+  try {
+    const username = req.body.username;
+    
+    if (!username) {
+      return res.status(400).json(errorResponse('Missing required field: username'));
+    }
+
+    // Get date range (use provided or default to two Mondays ago to most recent Monday)
+    let dateRange = null;
+    if (req.body.startDate && req.body.endDate) {
+      dateRange = {
+        startDate: req.body.startDate,
+        endDate: req.body.endDate,
+      };
+    } else {
+      dateRange = getDefaultDateRange();
+    }
+
+    console.log(`Date range: ${dateRange.startDate} to ${dateRange.endDate}`);
+
+    // Initialize grading service with date range
+    const gradingService = new GradingService(
+      config,
+      process.env.GITHUB_TOKEN,
+      {
+        provider: config.aiProvider,
+        openaiApiKey: process.env.OPENAI_API_KEY,
+        copilotApiKey: process.env.COPILOT_API_KEY,
+      },
+      dateRange
+    );
+
+    // Perform grading
+    console.log(`Starting grading for user: ${username}`);
+    const result = await gradingService.gradeUserAcrossRepos(username);
+
+    // Generate and save HTML report
+    await ensureReportsDir();
+    const timestamp = Date.now();
+    const safeUsername = username.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    const reportFilename = `grading-report-user-${safeUsername}-${timestamp}.html`;
+    const reportPath = path.join(REPORTS_DIR, reportFilename);
+    const reportRelativePath = `reports/${reportFilename}`;
+    
+    // Wrap result in a format compatible with report generator
+    const resultsForReport = {
+      type: 'user',
+      repository: 'All Repositories',
+      gradedAt: new Date().toISOString(),
+      dateRange: dateRange,
+      students: [result],
+      statistics: {
+        totalStudents: 1,
+        averageScore: result.totalScore,
+        highestScore: result.totalScore,
+        lowestScore: result.totalScore,
+        passingCount: result.percentage >= 60 ? 1 : 0,
+        passingRate: result.percentage >= 60 ? '100.0' : '0.0',
+      },
+    };
+    
+    const html = reportGenerator.generateHTMLReport(resultsForReport, `User: ${username}`);
+    await fs.writeFile(reportPath, html, 'utf8');
+    console.log(`Report saved to: ${reportPath}`);
+
+    res.json(successResponse({
+      results: resultsForReport,
+      username,
+      reportPath: reportRelativePath,
+    }));
+  } catch (error) {
+    console.error('Error during user grading:', error);
+    res.status(500).json(errorResponse('User grading failed', error.message));
+  }
+});
+
+/**
+ * POST /grade/class - Grade a class across all repos
+ */
+app.post('/grade/class', async (req, res) => {
+  try {
+    let usernames, classId, className;
+
+    // Check if using saved class or manual input
+    if (req.body.classId) {
+      const cls = await dataService.getClassById(req.body.classId);
+      if (!cls) {
+        return res.status(404).json(errorResponse('Class not found'));
+      }
+      usernames = cls.usernames;
+      classId = cls.id;
+      className = cls.name;
+    } else {
+      usernames = parseUsernames(req.body.usernames);
+      className = req.body.className || 'Unnamed Class';
+    }
+
+    if (!usernames || usernames.length === 0) {
+      return res.status(400).json(errorResponse('Missing required field: usernames'));
+    }
+
+    // Get date range (use provided or default to two Mondays ago to most recent Monday)
+    let dateRange = null;
+    if (req.body.startDate && req.body.endDate) {
+      dateRange = {
+        startDate: req.body.startDate,
+        endDate: req.body.endDate,
+      };
+    } else {
+      dateRange = getDefaultDateRange();
+    }
+
+    console.log(`Date range: ${dateRange.startDate} to ${dateRange.endDate}`);
+
+    // Initialize grading service with date range
+    const gradingService = new GradingService(
+      config,
+      process.env.GITHUB_TOKEN,
+      {
+        provider: config.aiProvider,
+        openaiApiKey: process.env.OPENAI_API_KEY,
+        copilotApiKey: process.env.COPILOT_API_KEY,
+      },
+      dateRange
+    );
+
+    // Perform grading
+    console.log(`Starting grading for class: ${className}`);
+    const results = await gradingService.gradeClassAcrossRepos(usernames);
+
+    // Generate and save HTML report
+    await ensureReportsDir();
+    const timestamp = Date.now();
+    const safeClassName = className.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    const reportFilename = `grading-report-class-${safeClassName}-${timestamp}.html`;
+    const reportPath = path.join(REPORTS_DIR, reportFilename);
+    const reportRelativePath = `reports/${reportFilename}`;
+    
+    const html = reportGenerator.generateHTMLReport(results, className);
+    await fs.writeFile(reportPath, html, 'utf8');
+    console.log(`Report saved to: ${reportPath}`);
+
+    // Save results and report path if this is a saved class
+    let reportPathStored = null;
+    if (classId) {
+      await dataService.saveClassGradingResults(classId, results, reportRelativePath);
+      reportPathStored = reportRelativePath;
+    }
+
+    res.json(successResponse({
+      results,
+      classId,
+      className,
+      reportPath: reportRelativePath,
+    }));
+  } catch (error) {
+    console.error('Error during class grading:', error);
+    res.status(500).json(errorResponse('Class grading failed', error.message));
   }
 });
 

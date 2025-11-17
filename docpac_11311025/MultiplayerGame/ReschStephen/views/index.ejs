@@ -40,7 +40,6 @@
 
             if (!gameLoopStarted) {
                 gameLoopStarted = true;
-                console.log("Starting game loop now");
                 requestAnimationFrame(gameLoop);
             }
         });
@@ -87,7 +86,6 @@
         avatar2.img.src = 'DeadHog.png';
 
         document.addEventListener('keydown', (key) => {
-            console.log("Key pressed:", key.key);
             switch (key.key) {
                 case 'w':
                     inputVertical = -1;
@@ -173,14 +171,16 @@
                 velocityY: myAvatar.velocityY
             });
 
-            if (myAvatar.x < 0) {
-                myAvatar.deadPork = true;
-            } else if (myAvatar.y < 0) {
-                myAvatar.deadPork = true;
-            } else if (myAvatar.x + myAvatar.w > canvas.width) {
-                myAvatar.deadPork = true;
-            } else if (myAvatar.y + myAvatar.h > canvas.height) {
-                myAvatar.deadPork = true;
+            if (myAvatar.x < 0 || myAvatar.y < 0 ||
+                myAvatar.x + myAvatar.w > canvas.width ||
+                myAvatar.y + myAvatar.h > canvas.height) {
+
+                console.log(`${myPlayer} is out of bounds at:`, myAvatar.x, myAvatar.y);
+
+                if (!myAvatar.deadPork) {
+                    myAvatar.deadPork = true;
+                    socket.emit('playerDied', { player: myPlayer });
+                }
             }
 
             ctx.fillStyle = 'pink';
@@ -194,7 +194,6 @@
         }
 
         socket.on('collisionResponse', (data) => {
-            console.log("Received collision response:", data);
 
             avatar.x = data.positions.avatar.x;
             avatar.y = data.positions.avatar.y;
@@ -202,7 +201,6 @@
             avatar2.y = data.positions.avatar2.y;
 
             if (data.victim === myPlayer) {
-                console.log("I am the victim - getting knocked back");
                 const otherAvatar = (myPlayer === 'avatar') ? avatar2 : avatar;
                 const dx = (myAvatar.x + myAvatar.w / 2) - (otherAvatar.x + otherAvatar.w / 2);
                 const dy = (myAvatar.y + myAvatar.h / 2) - (otherAvatar.y + otherAvatar.h / 2);
@@ -215,22 +213,29 @@
         });
 
         function gameLoop() {
-            console.log("Game loop running");
             update();
             requestAnimationFrame(gameLoop);
         }
 
+        socket.on('playerDeathUpdate', (data) => {
+
+            if (data.player === 'avatar') {
+                avatar.deadPork = data.deadPork;
+            } else if (data.player === 'avatar2') {
+                avatar2.deadPork = data.deadPork;
+            }
+        });
+
         socket.on('update', (playersData) => {
-            if (myPlayer === 'avatar') {
-                if (playersData.avatar2) {
-                    avatar2.x = playersData.avatar2.x;
-                    avatar2.y = playersData.avatar2.y;
-                }
-            } else if (myPlayer === 'avatar2') {
-                if (playersData.avatar) {
-                    avatar.x = playersData.avatar.x;
-                    avatar.y = playersData.avatar.y;
-                }
+            if (playersData.avatar) {
+                avatar.x = playersData.avatar.x;
+                avatar.y = playersData.avatar.y;
+                avatar.deadPork = false;
+            }
+            if (playersData.avatar2) {
+                avatar2.x = playersData.avatar2.x;
+                avatar2.y = playersData.avatar2.y;
+                avatar2.deadPork = false;
             }
         });
 
