@@ -440,10 +440,6 @@ class GitHubService {
 
   /**
    * Check if an issue went through the complete workflow
-   * Requirements:
-   * - Must have been in "To Do", "In Progress", and "Done" at some point
-   * - Must end in "Done" (last column must be Done)
-   * - Can have been in other columns in between
    */
   async checkWorkflowProgression(owner, repo, issueNumber, projectNumber, expectedColumns) {
     const history = await this.getIssueProjectHistory(owner, repo, issueNumber, projectNumber);
@@ -456,24 +452,10 @@ class GitHubService {
       };
     }
 
-    // Filter out "removed_from_project" events and get only column movements
-    const columnEvents = history.filter(h => 
-      h.event !== 'removed_from_project' && h.column && h.column !== 'Unknown'
-    );
-
-    if (columnEvents.length === 0) {
-      return {
-        passed: false,
-        columns: [],
-        history,
-        message: 'Issue was removed from project board or has no valid column history',
-      };
-    }
-
     // Extract unique columns the issue has been in
-    const columnsVisited = [...new Set(columnEvents.map(h => h.column))];
+    const columnsVisited = [...new Set(history.map(h => h.column))];
 
-    // Check if all expected columns were visited (order doesn't matter)
+    // Check if all expected columns were visited
     const expectedNames = Object.values(expectedColumns);
     const allVisited = expectedNames.every(expected =>
       columnsVisited.some(visited => 
@@ -482,198 +464,14 @@ class GitHubService {
       )
     );
 
-    // Check if the issue ends in "Done" (last column in history must be Done)
-    // Sort events by timestamp to ensure we get the actual last column
-    const sortedEvents = [...columnEvents].sort((a, b) => 
-      new Date(a.createdAt) - new Date(b.createdAt)
-    );
-    const lastEvent = sortedEvents[sortedEvents.length - 1];
-    const lastColumn = lastEvent.column;
-    
-    // Find the "Done" column name from expected columns
-    const doneColumn = expectedNames.find(name => 
-      name.toLowerCase().includes('done') || name.toLowerCase() === 'done'
-    );
-    
-    const endsInDone = doneColumn ? (() => {
-      const doneLower = doneColumn.toLowerCase();
-      const lastLower = lastColumn.toLowerCase();
-      // Check if last column matches "Done" (case-insensitive, partial match)
-      return lastLower.includes('done') || lastLower === 'done' || 
-             lastLower.includes(doneLower) || doneLower.includes(lastLower);
-    })() : false;
-
-    const passed = allVisited && endsInDone;
-
-    // Build detailed message
-    let message;
-    if (!allVisited) {
-      const missing = expectedNames.filter(expected =>
-        !columnsVisited.some(visited => 
-          visited.toLowerCase().includes(expected.toLowerCase()) ||
-          expected.toLowerCase().includes(visited.toLowerCase())
-        )
-      );
-      message = `Issue did not visit all required columns. Missing: ${missing.join(', ')}. Visited: ${columnsVisited.join(' → ')}`;
-    } else if (!endsInDone) {
-      message = `Issue visited all required columns but did not end in "Done". Last column: ${lastColumn}. Visited: ${columnsVisited.join(' → ')}`;
-    } else {
-      message = 'Issue progressed through all workflow columns and ended in Done';
-    }
-
     return {
-      passed,
+      passed: allVisited,
       columns: columnsVisited,
       history,
-      lastColumn,
-      message,
+      message: allVisited
+        ? 'Issue progressed through all workflow columns'
+        : `Issue visited: ${columnsVisited.join(' → ')}. Expected: ${expectedNames.join(' → ')}`,
     };
-  }
-
-  /**
-   * Get the authenticated user's information
-   */
-  async getAuthenticatedUser() {
-    const cacheKey = 'authenticated-user';
-    if (this.cache.has(cacheKey)) {
-      return this.cache.get(cacheKey);
-    }
-
-    try {
-      const { data } = await this.octokit.users.getAuthenticated();
-      this.cache.set(cacheKey, data);
-      return data;
-    } catch (error) {
-      console.error('Error fetching authenticated user:', error.message);
-      throw new Error(`Failed to fetch authenticated user: ${error.message}`);
-    }
-  }
-
-  /**
-   * Get all repositories owned by the authenticated user
-   */
-  async getUserRepositories() {
-    const cacheKey = 'user-repositories';
-    if (this.cache.has(cacheKey)) {
-      return this.cache.get(cacheKey);
-    }
-
-    try {
-      const user = await this.getAuthenticatedUser();
-      const repos = [];
-      let page = 1;
-      let hasMore = true;
-
-      while (hasMore) {
-        const { data } = await this.octokit.repos.listForAuthenticatedUser({
-          per_page: 100,
-          page,
-          sort: 'updated',
-          direction: 'desc',
-        });
-
-        repos.push(...data);
-        
-        if (data.length < 100) {
-          hasMore = false;
-        } else {
-          page++;
-        }
-      }
-
-      // Filter to only public repos owned by the user (not forks unless they own them)
-      const ownedRepos = repos.filter(repo => 
-        repo.owner.login === user.login && !repo.fork && !repo.private
-      );
-
-      console.log(`Found ${ownedRepos.length} public repositories owned by ${user.login}`);
-      this.cache.set(cacheKey, ownedRepos);
-      return ownedRepos;
-    } catch (error) {
-      console.error('Error fetching user repositories:', error.message);
-      throw new Error(`Failed to fetch user repositories: ${error.message}`);
-    }
-  }
-
-  /**
-   * Get all issues assigned to a user across multiple repositories
-   */
-  async getUserIssuesAcrossRepos(username) {
-    const repos = await this.getUserRepositories();
-    const allIssues = [];
-
-    console.log(`Scanning ${repos.length} repositories for issues assigned to ${username}...`);
-
-    for (const repo of repos) {
-      try {
-        const issues = await this.getUserIssues(repo.owner.login, repo.name, username);
-        issues.forEach(issue => {
-          allIssues.push({
-            ...issue,
-            repository: `${repo.owner.login}/${repo.name}`,
-            repoOwner: repo.owner.login,
-            repoName: repo.name,
-          });
-        });
-      } catch (error) {
-        console.error(`Error fetching issues from ${repo.owner.login}/${repo.name}:`, error.message);
-        // Continue with other repos
-      }
-    }
-
-    console.log(`Found ${allIssues.length} total issues across all repositories`);
-    return allIssues;
-  }
-
-  /**
-   * Get all pull requests created by a user across multiple repositories
-   */
-  async getUserPullRequestsAcrossRepos(username) {
-    const repos = await this.getUserRepositories();
-    const allPRs = [];
-
-    console.log(`Scanning ${repos.length} repositories for PRs by ${username}...`);
-
-    for (const repo of repos) {
-      try {
-        const prs = await this.getUserPullRequests(repo.owner.login, repo.name, username);
-        prs.forEach(pr => {
-          allPRs.push({
-            ...pr,
-            repository: `${repo.owner.login}/${repo.name}`,
-            repoOwner: repo.owner.login,
-            repoName: repo.name,
-          });
-        });
-      } catch (error) {
-        console.error(`Error fetching PRs from ${repo.owner.login}/${repo.name}:`, error.message);
-        // Continue with other repos
-      }
-    }
-
-    console.log(`Found ${allPRs.length} total PRs across all repositories`);
-    return allPRs;
-  }
-
-  /**
-   * Get commits for an issue across repositories (helper for multi-repo grading)
-   */
-  async getIssueCommitsForRepo(owner, repo, issueNumber) {
-    return await this.getIssueCommits(owner, repo, issueNumber);
-  }
-
-  /**
-   * Get PRs for an issue across repositories (helper for multi-repo grading)
-   */
-  async getIssuePullRequestsForRepo(owner, repo, issueNumber) {
-    return await this.getIssuePullRequests(owner, repo, issueNumber);
-  }
-
-  /**
-   * Get PR diff across repositories (helper for multi-repo grading)
-   */
-  async getPullRequestDiffForRepo(owner, repo, prNumber) {
-    return await this.getPullRequestDiff(owner, repo, prNumber);
   }
 
   /**

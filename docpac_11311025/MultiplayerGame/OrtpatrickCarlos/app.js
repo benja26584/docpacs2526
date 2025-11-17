@@ -14,10 +14,6 @@ const io = new Server(server);
 const path = require('path');
 const TicTacToe = require('./scripts/ttt').TicTacToe;
 
-
-
-
-
 //database setup
 const db = new sqlite3.Database('./db/venture.db', (err) => {
     if (err) {
